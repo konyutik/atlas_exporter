@@ -28,16 +28,49 @@ type dnsExporter struct {
 }
 
 // Export exports a prometheus metric
-func (m *dnsExporter) Export(res *measurement.Result, probe *probe.Probe, ch chan<- prometheus.Metric) {
+func (m *dnsExporter) Export(res *measurement.Result, p *probe.Probe, ch chan<- prometheus.Metric) {
+	if rs := res.DnsResultsets(); len(rs) > 0 {
+		for _, s := range rs {
+			if s == nil {
+				continue
+			}
+
+			labelValues := []string{
+				m.id,
+				strconv.Itoa(p.ID),
+				s.DstAddr(),
+				strconv.Itoa(p.ASNForIPVersion(s.Af())),
+				strconv.Itoa(s.Af()),
+				p.CountryCode,
+				p.Latitude(),
+				p.Longitude(),
+			}
+
+			if s.DnsError() != nil || s.Result() == nil {
+				ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 0, labelValues...)
+				continue
+			}
+
+			rtt := s.Result().Rt()
+			if rtt > 0 {
+				ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 1, labelValues...)
+				ch <- prometheus.MustNewConstMetric(rttDesc, prometheus.GaugeValue, rtt, labelValues...)
+			} else {
+				ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 0, labelValues...)
+			}
+		}
+		return
+	}
+
 	labelValues := []string{
 		m.id,
-		strconv.Itoa(probe.ID),
+		strconv.Itoa(p.ID),
 		res.DstAddr(),
-		strconv.Itoa(probe.ASNForIPVersion(res.Af())),
+		strconv.Itoa(p.ASNForIPVersion(res.Af())),
 		strconv.Itoa(res.Af()),
-		probe.CountryCode,
-		probe.Latitude(),
-		probe.Longitude(),
+		p.CountryCode,
+		p.Latitude(),
+		p.Longitude(),
 	}
 
 	var rtt float64
